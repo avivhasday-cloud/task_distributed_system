@@ -1,7 +1,9 @@
 use std::cmp::Ordering;
 
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+
+#[derive(Debug, PartialEq, Eq, Clone, Serialize, Deserialize)]
 pub enum TaskPriority {
     VeryLow,
     Low,
@@ -92,4 +94,40 @@ impl TaskPriority {
     }
 
 
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+
+    #[test]
+    fn test_from_string() {
+        let priority = TaskPriority::from_string("High");
+        assert_eq!(priority, TaskPriority::High)
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_from_string_panic() {
+        TaskPriority::from_string("non-exists");
+    }
+
+    #[test]
+    fn test_to_string() {
+        let priority = TaskPriority::High;
+        let priority_str = TaskPriority::to_string(&priority);
+        assert_eq!(priority_str, "High");
+    }
+
+    #[test]
+    fn test_cmp() {
+        let prio_1 = TaskPriority::High;
+        let prio_2 = TaskPriority::Low;
+
+        let ordering = TaskPriority::cmp(&prio_1, &prio_2);
+        assert_eq!(ordering, Ordering::Greater);
+
+    }
 }
