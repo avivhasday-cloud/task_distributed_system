@@ -3,7 +3,7 @@ use std::thread::{self, JoinHandle};
 extern crate uuid;
 
 use uuid::Uuid;
-#[derive(Clone, Copy)]
+#[derive(Debug,Clone, Copy)]
 pub enum WorkerStatus {
     Ready,
     Busy,
@@ -36,14 +36,11 @@ pub struct Worker {
 
 impl Worker {
 
-    pub fn new<F>(f: F) -> Self 
-    where 
-        F: FnOnce() -> () + Send + 'static,
+    pub fn new() -> Self 
     {
-
         Worker {
             id: Uuid::new_v4(),
-            thread_handle: Some(thread::spawn(f)),
+            thread_handle: None,
             idle_time: 0,
             status: WorkerStatus::from_string("Busy")
         }
@@ -69,6 +66,13 @@ impl Worker {
         self.idle_time = new_idle_time;
     }
 
+    pub fn run_task<F>(&mut self, f: F)
+    where
+        F: FnOnce() + Send + 'static, 
+    {
+        self.thread_handle = Some(thread::spawn(f))
+    }
+
     pub fn join_handle_thread(&mut self) {
         if let Some(handle) = self.thread_handle.take() {
             let _ = handle.join();
@@ -76,4 +80,14 @@ impl Worker {
         }
     }
 
+}
+
+impl Drop for Worker {
+
+    fn drop(&mut self) {
+        if let Some(handle) = self.thread_handle.take() {
+            let _ = handle.join();
+            println!("Joining worker {} thread", self.get_id());
+        }
+    } 
 }

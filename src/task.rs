@@ -29,6 +29,10 @@ impl Task {
         &self.name
     }
 
+    pub fn get_priority_as_str(&self) -> String {
+        self.priority.to_string().clone()
+    }
+
     pub fn get_details(&self) -> HashMap<String, String> {
         let mut task_details = HashMap::new();
 

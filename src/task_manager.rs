@@ -1,4 +1,6 @@
-use std::{num::ParseIntError, ops::Index, sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex}, thread::{self, JoinHandle}};
+use std::{num::ParseIntError, ops::Index, sync::{atomic::{AtomicBool, Ordering}, mpsc::{self, TryRecvError}, Arc, Mutex}, thread::{self, JoinHandle}};
+
+use uuid::Uuid;
 
 use crate::{priority_queue::PriorityQueue, task::Task, worker::{Worker, WorkerStatus}};
 use std::time::Duration;
@@ -6,7 +8,6 @@ use std::time::Duration;
 pub struct TaskManager {
     tasks_queue: Arc<Mutex<PriorityQueue>>,
     running_tasks: Arc<Mutex<Vec<Task>>>,
-    workers: Arc<Mutex<Vec<Worker>>>,
     manager_thread: Option<JoinHandle<()>>,
     keep_thread_alive: Arc<AtomicBool>,
     num_of_max_workers: usize,
@@ -22,7 +23,6 @@ impl TaskManager {
             running_tasks: Arc::new(Mutex::new(Vec::new())),
             manager_thread: None,
             keep_thread_alive: Arc::new(AtomicBool::new(true)),
-            workers: Arc::new(Mutex::new(Vec::new())),
         };
         
         task_manager
@@ -31,38 +31,75 @@ impl TaskManager {
     pub fn start_manager_thread(&mut self){
         let tasks_queue_clone = self.tasks_queue.clone();
         let running_tasks_clone = self.running_tasks.clone();
-        let workers_clone = self.workers.clone();
         let num_of_max_workers = self.num_of_max_workers;
         let keep_alive_clone = self.keep_thread_alive.clone();
         self.manager_thread = Some(thread::spawn(move || {
-            TaskManager::handle_dispatching_to_workers(tasks_queue_clone, running_tasks_clone, workers_clone, num_of_max_workers, keep_alive_clone)
+            TaskManager::handle_dispatching_to_workers(tasks_queue_clone, running_tasks_clone, num_of_max_workers, keep_alive_clone)
         }));
     }
 
 
-    fn handle_dispatching_to_workers(tasks_queue: Arc<Mutex<PriorityQueue>>, running_tasks: Arc<Mutex<Vec<Task>>>, workers_clone: Arc<Mutex<Vec<Worker>>>, num_of_max_workers: usize, keep_thread_alive: Arc<AtomicBool>) {
+    fn handle_dispatching_to_workers(tasks_queue: Arc<Mutex<PriorityQueue>>, running_tasks: Arc<Mutex<Vec<Task>>>,  num_of_max_workers: usize, keep_thread_alive: Arc<AtomicBool>) {
+        let mut workers: Vec<Worker> = Vec::new();
+        let (tx, rx): (mpsc::Sender<Uuid>, mpsc::Receiver<Uuid>) = mpsc::channel();
+        
         while keep_thread_alive.load(Ordering::SeqCst) {
+
+            match rx.try_recv() {
+                Ok(worker_id) => {
+                    // Find the worker that sent the signal and mark it as Idle
+                    if let Some(worker) = workers.iter_mut().find(|w| w.get_id() == worker_id) {
+                        println!("Worker {} has completed its task", worker_id);
+                        worker.set_status(WorkerStatus::Idle);
+                        println!("Worker {} status is now idle", worker_id);
+
+                    }
+                },
+                Err(TryRecvError::Empty) => {
+                    // No worker has finished yet; proceed to check for new tasks
+                },
+                Err(TryRecvError::Disconnected) => {
+                    // Channel has been disconnected; possibly handle error or break
+                    break;
+                }
+            }
+
             let task_option = {
                 let mut queue = tasks_queue.lock().unwrap();
-                queue.get() // Assuming PriorityQueue has a get method
+                queue.get()
             };
 
             if let Some(task) = task_option {
-                let mut workers = workers_clone.lock().unwrap();
 
                 if let Some(worker) = workers.iter_mut().find(|worker| matches!(worker.get_status(), WorkerStatus::Ready | WorkerStatus::Idle)) {
-                    println!("Assigning task to available worker {}", worker.get_id());
+                    println!("Assigning task with priority {} to available worker {}", task.get_priority_as_str() ,worker.get_id());
+                    let worker_id = worker.get_id();
+                    let tx_clone = tx.clone();
+                    let running_tasks_worker_clone = running_tasks.clone();
+                    worker.run_task(move || {
+                        TaskManager::process_task(task, running_tasks_worker_clone);
+                        tx_clone.send(worker_id).unwrap();
+                        
+                    });  
                     worker.set_status(WorkerStatus::Running);
                 } else if workers.len() < num_of_max_workers {
                     let running_tasks_worker_clone = running_tasks.clone();
-                    let mut new_worker = Worker::new(move || {
+                    let mut new_worker = Worker::new();
+                    let tx_clone = tx.clone();
+                    let worker_id = new_worker.get_id();
+                    new_worker.run_task(move || {
                         TaskManager::process_task(task, running_tasks_worker_clone);
-                    });
+                        tx_clone.send(worker_id).unwrap();
+                        
+                    });     
                     println!("Creating a new worker for the task");
                     new_worker.set_status(WorkerStatus::Running);
                     workers.push(new_worker);
-            } else {
-                    println!("Waiting for an available worker...");
+                } else {
+                        let mut queue = tasks_queue.lock().unwrap();
+                        queue.enqueue(task);
+                        println!("Waiting for an available worker...");
+                        thread::sleep(Duration::from_secs(10));
                 }
 
             }
@@ -112,11 +149,7 @@ impl Drop for TaskManager {
         self.keep_thread_alive.store(false, Ordering::SeqCst);
         if let Some(handle) = self.manager_thread.take() {
             let _ = handle.join();
-            println!("Joining mangager thread");
-        }
-        let mut workers_vector = self.workers.lock().unwrap();
-        for worker in workers_vector.iter_mut()  {
-            worker.join_handle_thread();
+            println!("Joining manager thread");
         }
     } 
 }

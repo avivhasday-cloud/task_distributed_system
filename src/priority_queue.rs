@@ -59,10 +59,14 @@ mod tests {
         }
     }
 
+    fn create_task() -> Task {
+        Task::new("test-user","test task", "test description", "High")
+    }
+
     #[test]
     fn test_enqueue() {
         let mut ctx = setup();
-        let task = Task::new("test-user","test task", "test description", "High");
+        let task = create_task();
         ctx.queue.enqueue(task);
         assert_eq!(ctx.queue.data.is_empty(), false);
     }
@@ -72,7 +76,7 @@ mod tests {
         let mut ctx = setup();
         assert_eq!(ctx.queue.is_empty(), true);        
     
-        let task = Task::new("test-user","test task", "test description", "High");
+        let task = create_task();
         ctx.queue.enqueue(task);
         assert_eq!(ctx.queue.is_empty(), false);
     }
@@ -82,7 +86,7 @@ mod tests {
         let mut ctx = setup();
         assert_eq!(ctx.queue.len(), 0);        
     
-        let task = Task::new("test-user","test task", "test description", "High");
+        let task = create_task();
         ctx.queue.enqueue(task);
         assert_eq!(ctx.queue.len(), 1);
     }
@@ -90,7 +94,7 @@ mod tests {
     #[test]
     fn test_get() {
         let mut ctx = setup();    
-        let task = Task::new("test-user","test task", "test description", "High");
+        let task = create_task();
         ctx.queue.enqueue(task.clone());
 
         let task_from_queue = ctx.queue.get().unwrap().clone();
@@ -101,7 +105,7 @@ mod tests {
     #[test]
     fn test_get_queued_items() {
         let mut ctx = setup();    
-        let task = Task::new("test-user","test task", "test description", "High");
+        let task = create_task();
         ctx.queue.enqueue(task.clone());
         
         let queued_items = ctx.queue.get_queued_items();
